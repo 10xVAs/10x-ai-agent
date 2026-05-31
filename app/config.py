@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Anthropic (optional in Phase 1)
     ANTHROPIC_API_KEY: str = ""
-    CLAUDE_MODEL: str = "claude-sonnet-4-5-20250929"
+    CLAUDE_MODEL: str = "claude-sonnet-4-5"
 
     # GHL (optional in Phase 1)
     GHL_PRIVATE_INTEGRATION_TOKEN: str = ""
