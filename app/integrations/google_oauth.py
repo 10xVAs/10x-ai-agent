@@ -57,6 +57,7 @@ def build_authorization_url(user_id: str) -> str:
         _client_config(),
         scopes=GOOGLE_SCOPES,
         redirect_uri=_redirect_uri(),
+        autogenerate_code_verifier=False,
     )
     auth_url, _ = flow.authorization_url(
         access_type="offline",       # request a refresh token
