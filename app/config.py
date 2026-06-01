@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     GHL_PRIVATE_INTEGRATION_TOKEN: str = ""
     GHL_LOCATION_ID: str = ""
     GHL_WRITE_MODE: str = "dry_run"  # "dry_run" or "live"
+    GMAIL_WRITE_MODE: str = "draft"  # "draft" or "live"
 
     # Google (optional in Phase 1)
     GOOGLE_OAUTH_CLIENT_ID: str = ""

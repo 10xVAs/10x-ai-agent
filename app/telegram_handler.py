@@ -5,6 +5,7 @@ from app.config import settings
 from app.auth import is_authorized
 from app.db import get_user_by_telegram_id
 from app.agent.core import chat, reset_conversation, get_usage_summary
+from app.integrations.google_oauth import build_authorization_url, is_connected
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,38 @@ async def handle_update(update: dict) -> None:
             f"Input tokens: {s['total_input_tokens']:,}\n"
             f"Output tokens: {s['total_output_tokens']:,}\n"
             f"Estimated cost: ${s['total_cost_usd']:.4f}",
+        )
+        return
+    if text.startswith("/connect_google"):
+        if is_connected(user_id):
+            await send_message(
+                chat_id,
+                "✓ Google is already connected for this user. "
+                "To reconnect (e.g., after changing scopes), use `/disconnect_google` first.",
+            )
+            return
+        url = build_authorization_url(user_id=user_id)
+        await send_message(
+            chat_id,
+            "Connect Google Workspace:\n\n"
+            f"{url}\n\n"
+            "Open the link, sign in with `info@10xvas.com`, and approve. "
+            "Come back here after you see the success page.",
+            markdown=False,  # raw URL — don't risk Markdown breaking
+        )
+        return
+
+    if text.startswith("/disconnect_google"):
+        from app.db import supabase
+        supabase.table("google_oauth_tokens").delete().eq("user_id", user_id).execute()
+        await send_message(chat_id, "✓ Google disconnected. Use /connect_google to reconnect.")
+        return
+
+    if text.startswith("/google_status"):
+        connected = is_connected(user_id)
+        await send_message(
+            chat_id,
+            f"Google: {'✓ connected' if connected else '✗ not connected'}",
         )
         return
 

@@ -41,3 +41,28 @@ async def telegram_webhook(
 
     # Always return 200 to Telegram so it doesn't retry
     return {"ok": True}
+# ============================================================
+# Google OAuth callback
+# ============================================================
+from fastapi.responses import HTMLResponse
+from app.integrations.google_oauth import exchange_code_for_tokens, save_tokens
+
+
+@app.get("/auth/google/callback", response_class=HTMLResponse)
+async def google_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    """Handle the OAuth redirect from Google."""
+    if error:
+        return HTMLResponse(f"<h1>OAuth error</h1><p>{error}</p>", status_code=400)
+    if not code or not state:
+        return HTMLResponse("<h1>Missing code or state</h1>", status_code=400)
+
+    try:
+        creds = exchange_code_for_tokens(code)
+        save_tokens(user_id=state, creds=creds)
+        return HTMLResponse(
+            "<h1>✓ Google connected</h1>"
+            "<p>You can close this tab and return to Telegram.</p>"
+        )
+    except Exception as e:
+        logger.exception(f"OAuth callback failed: {e}")
+        return HTMLResponse(f"<h1>OAuth failed</h1><p>{e}</p>", status_code=500)

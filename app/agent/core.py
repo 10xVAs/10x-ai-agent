@@ -5,6 +5,7 @@ from anthropic import Anthropic
 from app.config import settings
 from app.agent.prompts import get_system_prompt
 from app.agent.tools.ghl_tools import GHL_TOOL_DEFINITIONS, GHL_TOOL_EXECUTORS
+from app.agent.tools.gmail_tools import GMAIL_TOOL_DEFINITIONS, GMAIL_TOOL_EXECUTORS
 from app.db import (
     get_or_create_active_conversation,
     save_message,
@@ -26,8 +27,8 @@ PRICING = {
     "cache_read": 0.30,
 }
 
-ALL_TOOL_DEFINITIONS = GHL_TOOL_DEFINITIONS
-ALL_TOOL_EXECUTORS = {**GHL_TOOL_EXECUTORS}
+ALL_TOOL_DEFINITIONS = GHL_TOOL_DEFINITIONS + GMAIL_TOOL_DEFINITIONS
+ALL_TOOL_EXECUTORS = {**GHL_TOOL_EXECUTORS, **GMAIL_TOOL_EXECUTORS}
 
 MAX_AGENT_ITERATIONS = 8
 
@@ -42,11 +43,17 @@ def estimate_cost(usage) -> float:
     return input_cost + output_cost + cache_write_cost + cache_read_cost
 
 
-async def _execute_tool(tool_name: str, tool_input: dict) -> str:
+# Tools that require the current user_id injected automatically
+USER_SCOPED_TOOLS = {"gmail_search_read", "gmail_draft_or_send"}
+
+
+async def _execute_tool(tool_name: str, tool_input: dict, user_id: str) -> str:
     executor = ALL_TOOL_EXECUTORS.get(tool_name)
     if not executor:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
     try:
+        if tool_name in USER_SCOPED_TOOLS:
+            return await executor(user_id=user_id, **tool_input)
         return await executor(**tool_input)
     except Exception as e:
         logger.exception(f"Tool {tool_name} failed: {e}")
@@ -118,7 +125,7 @@ async def chat(user_id: str, user_message: str, source: str = "telegram_bot") ->
         for block in response.content:
             if block.type == "tool_use":
                 logger.info(f"Tool call: {block.name} with input {block.input}")
-                result_str = await _execute_tool(block.name, block.input)
+                result_str = await _execute_tool(block.name, block.input, user_id=user_id)
                 logger.info(f"Tool result ({block.name}): {result_str[:200]}...")
 
                 try:

@@ -38,20 +38,28 @@ def get_system_prompt() -> str:
 
 ==== WRITE MODE ====
 
-{write_mode_note}
+GHL: {write_mode_note}
+
+Gmail: Write mode is currently "{settings.GMAIL_WRITE_MODE}". In "draft" mode, even if you call gmail_draft_or_send with send_now=true, a draft will be created instead of sending. The user can then review and send from Gmail. This is intentional protection.
 
 ==== AVAILABLE TOOLS ====
 
-Read tools (always live):
+GoHighLevel — read (always live):
 - ghl_find_contact — search contacts by name, email, or phone
 - ghl_read_conversations — list recent conversations and optionally their messages
 
-Write tools (subject to write mode above):
+GoHighLevel — write (subject to GHL write mode above):
 - ghl_send_sms — send an SMS to a contact
 - ghl_create_contact — create a new contact
 - ghl_update_contact — update fields or add tags to an existing contact
 - ghl_add_note — log a note on a contact's record
-- ghl_manage_pipeline — list pipelines, find opportunities, or move opportunities between stages
+- ghl_manage_pipeline — list pipelines, find opportunities, move opportunities between stages
+
+Gmail (requires user to have run /connect_google first):
+- gmail_search_read — search emails using Gmail query syntax
+- gmail_draft_or_send — create a draft (default, safer) or send an email directly
+
+If a Gmail tool returns "Google account not connected", tell the user to run /connect_google in Telegram.
 
 ==== CONFIRMATION PATTERN ====
 
