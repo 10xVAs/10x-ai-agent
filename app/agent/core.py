@@ -6,6 +6,8 @@ from app.config import settings
 from app.agent.prompts import get_system_prompt
 from app.agent.tools.ghl_tools import GHL_TOOL_DEFINITIONS, GHL_TOOL_EXECUTORS
 from app.agent.tools.gmail_tools import GMAIL_TOOL_DEFINITIONS, GMAIL_TOOL_EXECUTORS
+from app.agent.tools.gcal_tools import GCAL_TOOL_DEFINITIONS, GCAL_TOOL_EXECUTORS
+from app.agent.tools.gsheets_tools import GSHEETS_TOOL_DEFINITIONS, GSHEETS_TOOL_EXECUTORS
 from app.db import (
     get_or_create_active_conversation,
     save_message,
@@ -27,8 +29,18 @@ PRICING = {
     "cache_read": 0.30,
 }
 
-ALL_TOOL_DEFINITIONS = GHL_TOOL_DEFINITIONS + GMAIL_TOOL_DEFINITIONS
-ALL_TOOL_EXECUTORS = {**GHL_TOOL_EXECUTORS, **GMAIL_TOOL_EXECUTORS}
+ALL_TOOL_DEFINITIONS = (
+    GHL_TOOL_DEFINITIONS
+    + GMAIL_TOOL_DEFINITIONS
+    + GCAL_TOOL_DEFINITIONS
+    + GSHEETS_TOOL_DEFINITIONS
+)
+ALL_TOOL_EXECUTORS = {
+    **GHL_TOOL_EXECUTORS,
+    **GMAIL_TOOL_EXECUTORS,
+    **GCAL_TOOL_EXECUTORS,
+    **GSHEETS_TOOL_EXECUTORS,
+}
 
 MAX_AGENT_ITERATIONS = 8
 
@@ -44,7 +56,12 @@ def estimate_cost(usage) -> float:
 
 
 # Tools that require the current user_id injected automatically
-USER_SCOPED_TOOLS = {"gmail_search_read", "gmail_draft_or_send"}
+USER_SCOPED_TOOLS = {
+    "gmail_search_read",
+    "gmail_draft_or_send",
+    "gcal_manage_events",
+    "gsheets_read_write",
+}
 
 
 async def _execute_tool(tool_name: str, tool_input: dict, user_id: str) -> str:
