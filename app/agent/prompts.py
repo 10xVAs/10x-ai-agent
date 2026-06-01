@@ -3,7 +3,16 @@ from app.config import settings
 
 
 def get_system_prompt() -> str:
-    """Build the system prompt, including current write mode."""
+    """Build the system prompt, including current write mode and current date."""
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    current_datetime_note = (
+        f"Current UTC datetime: {now_utc.strftime('%Y-%m-%d %H:%M UTC')}. "
+        f"Day of week: {now_utc.strftime('%A')}. "
+        f"When the user references 'today', 'tomorrow', 'this week', etc., use this as the reference point. "
+        f"Note: the user is most likely in Philippine Time (UTC+8). Adjust mentally if discussing local times."
+    )
+
     write_mode_note = (
         "Write tools are currently in **DRY-RUN mode**. Any send-SMS, create-contact, update-contact, "
         "add-note, or move-opportunity calls will NOT actually execute — they return a simulated success. "
@@ -22,6 +31,10 @@ def get_system_prompt() -> str:
 2. NEVER simulate or roleplay a tool call. If you say "I'll search for X" you MUST actually call the tool, wait for output, then respond based on real output.
 3. If a tool returns an error or empty result, say so plainly.
 4. If you're about to provide specific names, contact details, message text, dates, or IDs — ask yourself: "Did this come from an actual tool result in this conversation?" If no, do not include it.
+
+==== CURRENT TIME ====
+
+{current_datetime_note}
 
 ==== WRITE MODE ====
 
