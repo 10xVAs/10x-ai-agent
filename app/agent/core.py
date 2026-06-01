@@ -3,7 +3,7 @@ import logging
 import json
 from anthropic import Anthropic
 from app.config import settings
-from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.prompts import get_system_prompt
 from app.agent.tools.ghl_tools import GHL_TOOL_DEFINITIONS, GHL_TOOL_EXECUTORS
 from app.db import (
     get_or_create_active_conversation,
@@ -78,7 +78,7 @@ async def chat(user_id: str, user_message: str, source: str = "telegram_bot") ->
         response = client.messages.create(
             model=settings.CLAUDE_MODEL,
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
+            system=get_system_prompt(),
             tools=ALL_TOOL_DEFINITIONS,
             messages=claude_messages,
         )

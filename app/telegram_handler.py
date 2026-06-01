@@ -11,9 +11,23 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
 
-async def send_message(chat_id: int, text: str) -> None:
-    """Send a plain-text message to a Telegram chat."""
+async def send_message(chat_id: int, text: str, markdown: bool = True) -> None:
+    """Send a message. Tries Markdown first; falls back to plain text if Telegram rejects it."""
     async with httpx.AsyncClient(timeout=30.0) as client:
+        if markdown:
+            resp = await client.post(
+                f"{TELEGRAM_API_BASE}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                },
+            )
+            if resp.status_code == 200:
+                return
+            # Markdown parse failed — log and retry as plain text
+            logger.warning(f"Telegram Markdown rejected: {resp.text[:200]}. Retrying as plain text.")
+
         await client.post(
             f"{TELEGRAM_API_BASE}/sendMessage",
             json={"chat_id": chat_id, "text": text},
