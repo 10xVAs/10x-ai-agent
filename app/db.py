@@ -147,3 +147,27 @@ def sum_usage(user_id: str) -> dict:
         "total_output_tokens": sum(r["output_tokens"] for r in rows),
         "total_cost_usd": sum(float(r["estimated_cost_usd"] or 0) for r in rows),
     }
+# ============================================================
+# TOOL CALLS
+# ============================================================
+def log_tool_call(
+    message_id: str,
+    tool_name: str,
+    input: dict,
+    output: dict | None,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """Insert a tool_calls row."""
+    from datetime import datetime, timezone
+    supabase.table("tool_calls").insert(
+        {
+            "message_id": message_id,
+            "tool_name": tool_name,
+            "input": input,
+            "output": output,
+            "status": status,
+            "error_message": error_message,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).execute()
