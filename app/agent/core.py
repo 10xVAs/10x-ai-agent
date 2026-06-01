@@ -1,21 +1,24 @@
-"""Core Claude agent loop. Phase 2: conversational only, no tools yet."""
+"""Core Claude agent loop. Phase 3 Pass 1: with GHL read-only tools."""
 import logging
+import json
 from anthropic import Anthropic
 from app.config import settings
 from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.tools.ghl_tools import GHL_TOOL_DEFINITIONS, GHL_TOOL_EXECUTORS
 from app.db import (
     get_or_create_active_conversation,
     save_message,
     get_conversation_messages,
     log_usage,
     start_new_conversation,
+    sum_usage,
+    log_tool_call,
 )
 
 logger = logging.getLogger(__name__)
 
 client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-# Sonnet 4.5 pricing as of late 2025 (USD per million tokens)
 PRICING = {
     "input": 3.00,
     "output": 15.00,
@@ -23,9 +26,13 @@ PRICING = {
     "cache_read": 0.30,
 }
 
+ALL_TOOL_DEFINITIONS = GHL_TOOL_DEFINITIONS
+ALL_TOOL_EXECUTORS = {**GHL_TOOL_EXECUTORS}
+
+MAX_AGENT_ITERATIONS = 8
+
 
 def estimate_cost(usage) -> float:
-    """Calculate the dollar cost of one API call."""
     input_cost = (usage.input_tokens / 1_000_000) * PRICING["input"]
     output_cost = (usage.output_tokens / 1_000_000) * PRICING["output"]
     cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
@@ -35,13 +42,22 @@ def estimate_cost(usage) -> float:
     return input_cost + output_cost + cache_write_cost + cache_read_cost
 
 
+async def _execute_tool(tool_name: str, tool_input: dict) -> str:
+    executor = ALL_TOOL_EXECUTORS.get(tool_name)
+    if not executor:
+        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+    try:
+        return await executor(**tool_input)
+    except Exception as e:
+        logger.exception(f"Tool {tool_name} failed: {e}")
+        return json.dumps({"error": f"Tool execution failed: {e}"})
+
+
 async def chat(user_id: str, user_message: str, source: str = "telegram_bot") -> str:
-    """Run one turn of conversation. Returns the assistant's reply text."""
-    # Get or create active conversation
+    """Run one full conversational turn, including any tool use loops."""
     conversation = get_or_create_active_conversation(user_id)
     conversation_id = conversation["id"]
 
-    # Save user message
     save_message(
         conversation_id=conversation_id,
         role="user",
@@ -49,58 +65,102 @@ async def chat(user_id: str, user_message: str, source: str = "telegram_bot") ->
         source=source,
     )
 
-    # Load full message history for this conversation, in Claude format
     history = get_conversation_messages(conversation_id)
     claude_messages = [{"role": m["role"], "content": m["content"]} for m in history]
 
-    # Call Claude
-    logger.info(f"Calling Claude with {len(claude_messages)} messages")
-    response = client.messages.create(
-        model=settings.CLAUDE_MODEL,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=claude_messages,
-    )
+    final_text = ""
+    for iteration in range(MAX_AGENT_ITERATIONS):
+        logger.info(
+            f"Agent iteration {iteration + 1}, {len(claude_messages)} messages, "
+            f"{len(ALL_TOOL_DEFINITIONS)} tools available: "
+            f"{[t['name'] for t in ALL_TOOL_DEFINITIONS]}"
+        )
+        response = client.messages.create(
+            model=settings.CLAUDE_MODEL,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT,
+            tools=ALL_TOOL_DEFINITIONS,
+            messages=claude_messages,
+        )
 
-    # Extract text from response
-    assistant_text = ""
-    for block in response.content:
-        if block.type == "text":
-            assistant_text += block.text
+        cost = estimate_cost(response.usage)
+        log_usage(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            model=settings.CLAUDE_MODEL,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            cache_creation_input_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
+            cache_read_input_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+            estimated_cost_usd=cost,
+        )
+        logger.info(
+            f"Iter cost ${cost:.5f} | in={response.usage.input_tokens} "
+            f"out={response.usage.output_tokens} | stop={response.stop_reason}"
+        )
 
-    # Save assistant message
-    save_message(
-        conversation_id=conversation_id,
-        role="assistant",
-        content=[{"type": "text", "text": assistant_text}],
-        source=source,
-    )
+        assistant_content = [block.model_dump() for block in response.content]
+        assistant_db_msg = save_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=assistant_content,
+            source=source,
+        )
+        claude_messages.append({"role": "assistant", "content": assistant_content})
 
-    # Log token usage and cost
-    cost = estimate_cost(response.usage)
-    log_usage(
-        user_id=user_id,
-        conversation_id=conversation_id,
-        model=settings.CLAUDE_MODEL,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
-        cache_creation_input_tokens=getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
-        cache_read_input_tokens=getattr(response.usage, "cache_read_input_tokens", 0) or 0,
-        estimated_cost_usd=cost,
-    )
-    logger.info(
-        f"Turn cost: ${cost:.5f} | in={response.usage.input_tokens} out={response.usage.output_tokens}"
-    )
+        if response.stop_reason != "tool_use":
+            for block in response.content:
+                if block.type == "text":
+                    final_text += block.text
+            break
 
-    return assistant_text
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                logger.info(f"Tool call: {block.name} with input {block.input}")
+                result_str = await _execute_tool(block.name, block.input)
+                logger.info(f"Tool result ({block.name}): {result_str[:200]}...")
+
+                try:
+                    parsed = json.loads(result_str)
+                    status = "error" if "error" in parsed else "success"
+                    error_msg = parsed.get("error") if status == "error" else None
+                except json.JSONDecodeError:
+                    status = "success"
+                    error_msg = None
+                log_tool_call(
+                    message_id=assistant_db_msg["id"],
+                    tool_name=block.name,
+                    input=block.input,
+                    output={"raw": result_str},
+                    status=status,
+                    error_message=error_msg,
+                )
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_str,
+                })
+            elif block.type == "text" and block.text:
+                final_text += block.text + "\n\n"
+
+        save_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=tool_results,
+            source=source,
+        )
+        claude_messages.append({"role": "user", "content": tool_results})
+    else:
+        final_text += "\n\n[Note: agent iteration limit reached]"
+
+    return final_text.strip() or "(no response)"
 
 
 def reset_conversation(user_id: str) -> None:
-    """Archive the current conversation; the next message starts a new one."""
     start_new_conversation(user_id)
 
 
 def get_usage_summary(user_id: str) -> dict:
-    """Return total token usage and cost for this user."""
-    from app.db import sum_usage
     return sum_usage(user_id)
