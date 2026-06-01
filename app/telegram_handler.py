@@ -143,10 +143,20 @@ async def handle_update(update: dict) -> None:
         return
 
     # Conversational message → Claude
-    await send_typing(chat_id)
+    # Keep typing indicator alive while the agent works (Telegram times out at ~5s)
+    import asyncio
+
+    async def keep_typing():
+        while True:
+            await send_typing(chat_id)
+            await asyncio.sleep(4)  # Refresh just before Telegram's 5s timeout
+
+    typing_task = asyncio.create_task(keep_typing())
     try:
         reply = await chat(user_id=user_id, user_message=text)
         await send_message(chat_id, reply)
     except Exception as e:
         logger.exception(f"Agent error: {e}")
         await send_message(chat_id, f"Something went wrong: {e}")
+    finally:
+        typing_task.cancel()
