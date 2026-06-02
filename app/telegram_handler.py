@@ -35,7 +35,7 @@ async def send_message(chat_id: int, text: str, markdown: bool = True) -> None:
 
 
 async def send_typing(chat_id: int) -> None:
-    """Show 'typing...' indicator once."""
+    """Show typing indicator once."""
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             await client.post(
@@ -151,11 +151,13 @@ async def handle_update(update: dict) -> None:
         await send_message(chat_id, "I only handle text messages right now.")
         return
 
+    # Conversational message → Claude
+    # Background loop refreshes the typing indicator while the agent works.
     typing_task = asyncio.create_task(_keep_typing(chat_id))
     try:
         reply = await chat(user_id=user_id, user_message=text)
         typing_task.cancel()
-        await send_typing(chat_id)
+        await send_typing(chat_id)  # one fresh ping right before the reply lands
         await send_message(chat_id, reply)
     except Exception as e:
         logger.exception(f"Agent error: {e}")
